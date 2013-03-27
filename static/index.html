@@ -40,21 +40,62 @@
             var epsg4326 = new OpenLayers.Projection("EPSG:4326");
             var epsg900913 = new OpenLayers.Projection("EPSG:900913");
 
+            var OLFC = OpenLayers.Filter.Comparison;
+            var GTE = OLFC.GREATER_THAN_OR_EQUAL_TO;
+            var LTE = OLFC.LESS_THAN_OR_EQUAL_TO;
+            var GT = OLFC.GREATER_THAN;
+            var LT = OLFC.LESS_THAN;
+            var EQ = OLFC.EQUAL_TO;
+
+            var style = new OpenLayers.Style();
+            style.addRules([
+                new OpenLayers.Rule({
+                    filter: OLFC({
+                        property: 'rank',
+                        value: 0,
+                        type: EQ
+                        }),
+                    symbolizer: {
+                        fillColor: 'whitesmoke',
+                        pointRadius: 6,
+                        fillOpacity: 0.8,
+                        strokeColor: '#222',
+                        strokeWidth: 1.8,
+                        }
+                    }),
+                new OpenLayers.Rule({
+                    filter: OLFC({
+                        property: 'rank',
+                        value: 1,
+                        type: EQ
+                        }),
+                    symbolizer: {
+                        fillColor: 'orangered',
+                        pointRadius: 10,
+                        fillOpacity: 0.8,
+                        strokeColor: '#222',
+                        strokeWidth: 1.8,
+                        }
+                    }),
+                new OpenLayers.Rule({
+                    filter: OLFC({
+                        property: 'rank',
+                        value: 1,
+                        type: GT
+                        }),
+                    symbolizer: {
+                        fillColor: 'gold',
+                        pointRadius: 8,
+                        fillOpacity: 0.8,
+                        strokeColor: '#222',
+                        strokeWidth: 1.8,
+                        }
+                    })
+                ]);
+
             var styleMap = new OpenLayers.StyleMap({
-                default: {
-                    pointRadius: 8,
-                    fillColor: "gold",
-                    fillOpacity: 0.8,
-                    strokeColor: "#222",
-                    strokeWidth: 1.8,
-                    }})
-
-            var lookup = {
-                0: {pointRadius: 6, fillColor: "darkslategray"},
-                1: {pointRadius: 10, fillColor: "orangered"}
-                }
-
-            styleMap.addUniqueValueRules("default", "rank", lookup);
+                default: style
+                })
 
             map = new OpenLayers.Map('map', {
                 units: "m",

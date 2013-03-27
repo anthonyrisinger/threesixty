@@ -109,7 +109,8 @@ class Gamer(object):
         return (self.key == other.key)
 
     def __lt__(self, other):
-        return self.bps < other.bps
+        #...purposefully "backwards"
+        return self.bps > other.bps
 
     @property
     def bps(self):
@@ -182,17 +183,17 @@ class Leaderboard(object):
             yield gamer
 
     def promote(self, killa):
-        print '>>> (joe => pro) promote:', killa
+        print '>>> (joe => pro) ++++', killa
         self.pro[killa.key] = self.joe.pop(killa.key)
         return killa
 
     def demote(self, tryhard):
-        print '>>> (pro => joe) demote:', tryhard
+        print '>>> (pro => joe) ----', tryhard
         self.joe[tryhard.key] = self.pro.pop(tryhard.key)
         return tryhard
 
     def boot(self, wanker):
-        print '>>> (no camping!) BOOT:', wanker
+        print '>>> (no camping) xxxx', wanker
         self.joe.pop(wanker.key, None)
         return wanker
 
@@ -237,14 +238,17 @@ def spawn(__cache=dict()):
     return t
 
 
-@timer(5)
+interval = 5
+@timer(interval)
 def anticamp(sig, lb=_lb):
     print '-'*79
     now = time.time()
     for gamer in chain(lb.pro.values(), lb.joe.values()):
-        if now - gamer.atime > 5:
-            lb.play(pdict(len=0, ts=now-5))
-            lb.play(pdict(len=0, ts=now-10))
+        if now - gamer.atime > interval:
+            for i in range(interval)[::-1]:
+                ohnoes = gamer.log[-1].copy()
+                ohnoes.update({'len': 0, 'ts': now})
+                lb.play(ohnoes)
     print '\n\n%s\n\n' % (pf(list(lb.leaders)),)
 
 
