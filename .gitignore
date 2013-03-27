@@ -1,0 +1,5 @@
+*py[co]
+
+/tests/data/
+
+!.git*

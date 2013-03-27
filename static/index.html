@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <title>Realtime Xbox 360 IP Location Map</title>
+    <style type="text/css">
+    body {
+        font-family: Helvetica, sans-serif; font-size: 13px;
+        line-height: 17px;
+        margin: 0px;
+        padding: 0px;
+    }
+    </style>
+    <script type="text/javascript" src="http://openlayers.org/api/OpenLayers.js"></script>
+    <script type="text/javascript" src="http://openstreetmap.org/openlayers/OpenStreetMap.js"></script>
+    <script type="text/javascript">
+        <!--
+        var map, layer, select;
+
+        function _mapjar() {
+                map.pan(1, 1, {animate: false});
+                map.pan(-1, -1, {animate: false});
+            };
+
+        function on_select(evt) {
+            if (details.feature === evt.feature) {
+                return
+                };
+            var feature = details.feature = evt.feature;
+            details.setContentHTML(
+                "<h3>" + feature.attributes.host + 
+                "</h3>" + feature.attributes.map
+                );
+                _mapjar();
+            };
+
+        function on_deselect(evt) {
+        }
+
+        function init() {
+            var epsg4326 = new OpenLayers.Projection("EPSG:4326");
+            var epsg900913 = new OpenLayers.Projection("EPSG:900913");
+
+            var styleMap = new OpenLayers.StyleMap({
+                default: {
+                    pointRadius: 8,
+                    fillColor: "gold",
+                    fillOpacity: 0.8,
+                    strokeColor: "#222",
+                    strokeWidth: 1.8,
+                    }})
+
+            var lookup = {
+                0: {pointRadius: 6, fillColor: "darkslategray"},
+                1: {pointRadius: 10, fillColor: "orangered"}
+                }
+
+            styleMap.addUniqueValueRules("default", "rank", lookup);
+
+            map = new OpenLayers.Map('map', {
+                units: "m",
+                numZoomLevels: 19,
+                projection: epsg900913,
+                displayProjection: epsg4326,
+                paddingForPopups: OpenLayers.Bounds(0,0,0,0),
+                controls: [
+                    new OpenLayers.Control.LayerSwitcher(),
+                    new OpenLayers.Control.MousePosition(),
+                    new OpenLayers.Control.Attribution()
+                    ]
+                });
+
+            parts = [
+                "http://otile",
+                ".mqcdn.com/tiles/1.0.0/",
+                "/${z}/${x}/${y}.jpg"
+                ];
+
+            tiles = {osm: [], sat: []};
+            for (var k in tiles){
+                for(var i=1; i<=4; i++) {
+                    tiles[k].push(parts[0]+i+parts[1]+k+parts[2]);
+                    }
+                map.addLayer(new OpenLayers.Layer.OSM(k, tiles[k], {
+                    isBaseLayer: true
+                    }));
+                };
+            
+            var players = new OpenLayers.Layer.Vector("CURRENT Players", {
+                projection: epsg4326,
+                styleMap: styleMap,
+                strategies: [
+                    new OpenLayers.Strategy.Fixed(),
+                    new OpenLayers.Strategy.Refresh({interval: 5000})
+                    ],
+                protocol: new OpenLayers.Protocol.HTTP({
+                    url: "/360/json/players/",
+                    format: new OpenLayers.Format.GeoJSON()
+                    })
+                });
+
+            map.addLayer(players);
+            
+            select = new OpenLayers.Control.SelectFeature(players, {
+                hover: true
+                });
+
+            players.events.on({
+                'featuresadded': function(event){
+                    details.setContentHTML('<h3>Inspect object...</h3>')
+                    map.zoomToExtent(players.getDataExtent());
+                    _mapjar();
+                    },
+                'featureselected': on_select,
+                'featureunselected': on_deselect
+                });
+
+            details = new OpenLayers.Popup(
+                'Details', null, new OpenLayers.Size(200,100),
+                '<h3>Inspect object...</h3>', false, null
+                );
+
+            details.keepInMap = false;
+            details.panMapIfOutOfView = false;
+            details.opacity = 0.8;
+            details.backgroundColor = '#efefef';
+
+            map.addPopup(details);
+
+            details.hide()
+            var details_sync = function(evt){
+                var px = new OpenLayers.Pixel(0,
+                    map.getCurrentSize().h - details.size.h);
+                details.moveTo(px);
+                details.show();
+                };
+
+            map.events.register('moveend', map, details_sync);
+            map.events.register('zoomend', map, details_sync);
+
+            map.addControl(select);
+            select.activate();
+        }
+        // -->
+    </script>
+  </head>
+  <body onload="init()">
+    <div id="statusmsg" style="float: right; z-index: 9999;"></div>
+    <div id="map" style="z-index: 0;"></div>
+  </body>
+</html>
