@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+
+from __future__ import absolute_import, division
+
 import uwsgi
 import sys, os
 
@@ -110,7 +113,7 @@ class Gamer(object):
 
     def __lt__(self, other):
         #...purposefully "backwards"
-        return self.bps > other.bps
+        return self.out.properties.bps > other.out.properties.bps
 
     @property
     def bps(self):
@@ -258,7 +261,7 @@ def entry_json(environ, start_response, lb=_lb):
         ])
     return [json.dumps({
         'type': 'FeatureCollection',
-        'features': [node.out for node in _lb.leaders],
+        'features': [node.out for node in lb.leaders],
         })]
 
 
