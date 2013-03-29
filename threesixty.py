@@ -2,268 +2,251 @@
 
 
 from __future__ import absolute_import, division
+from pprint import pprint as pp, pformat as pf
 
 import uwsgi
 import sys, os
 
-from threading import Thread
-from subprocess import Popen, PIPE
+import gevent
+from gevent.fileobject import FileObjectPosix
 from collections import deque
-from pprint import pprint as pp, pformat as pf
 
-from uwsgidecorators import timer, postfork
-from functools import total_ordering
-from itertools import chain
+from uwsgidecorators import postfork
+from functools import partial, total_ordering
 
 import json
 import time
+import signal
+
+
+def gpfork(fn):
+    postfork(gevent.Greenlet(fn).start)
 
 
 def pdict():
     from types import MethodType as _m
+    from collections import defaultdict as _dd
     def _k2a(fx):
         def gx(*args, **kwds):
             try: return fx(*args, **kwds)
             except KeyError, e: raise AttributeError(*e.args)
         gx.__name__ = fx.__name__
         return gx
+    _init = lambda s, *a, **k: super(_r, s).__init__(
+            k.pop('__missing__', None), *a, **k)
     _copy = lambda s: _r(s)
     _dir = lambda s: sorted(set(s).union(*map(dir, _r.__mro__)))
-    _r = type('record', (dict,), dict())
-    _r.__getattr__ = _m(_k2a(dict.__getitem__), None, _r)
-    _r.__setattr__ = _m(_k2a(dict.__setitem__), None, _r)
-    _r.__delattr__ = _m(_k2a(dict.__delitem__), None, _r)
+    _r = type('pdict', (_dd,), dict())
+    _r.__getattr__ = _m(_k2a(_dd.__getitem__), None, _r)
+    _r.__setattr__ = _m(_k2a(_dd.__setitem__), None, _r)
+    _r.__delattr__ = _m(_k2a(_dd.__delitem__), None, _r)
+    _r.__init__ = _m(_init, None, _r)
     _r.__dir__ = _m(_dir, None, _r)
     _r.copy = _m(_copy, None, _r)
     return _r
 pdict = pdict()
 
 
-_keys = ('addr', 'host', 'lon', 'lat', 'city', 'country', 'len')
-_tshark = (
-    'tshark',
-        '-l',
-        #'-r', '/root/pcap/vpn0.x360.0',
-        '-i', 'vpn0',
-    '-Tfields',
-        '-eip.dst',
-        '-eip.dst_host',
-        '-eip.geoip.dst_lon',
-        '-eip.geoip.dst_lat',
-        '-eip.geoip.dst_city',
-        '-eip.geoip.dst_country',
-        '-eudp.length',
-    '-R',
-        'ip.geoip.dst_city != "Redmond, WA"',
-    )
-
-
 @total_ordering
 class Gamer(object):
 
-    ME = ((
-        '184.58.129.22',
-        'cpe-184-58-129-22.wi.res.rr.com',
-        -88.0075,
-        43.0228,
-        'Milwaukee, WI',
-        'United States',
-        0,
-        ))
+    LOCAL = [
+        '0\t0\t184.58.129.22\tcpe-184-58-129-22.wi.res.rr.com'
+        '\t-88.0075\t43.0228\tMilwaukee, WI\tUnited States',
+        '0\t0\t192.81.215.209\ttear.xtfx.net'
+        '\t-73.9981\t40.7267\tNew York, NY\tUnited States',
+        ]
 
-    DO = ((
-        '192.81.215.209',
-        'tear.xtfx.net',
-        -73.9981,
-        40.7267,
-        'New York, NY',
-        'United States',
-        0,
-        ))
-
-    def __init__(self, game, pkt, qlen=16, bmin=16):
-        now = time.time()
-        qlen = max(qlen, 4)
-        bmin = max(bmin, 4)
-        zeros = [pdict(len=0, ts=now-1)]*qlen
-        self.key = pkt.addr
-        self.atime = now
+    def __init__(self, game, pkt=None):
         self.game = game
-        self.qlen = qlen
-        self.bmin = bmin
-        self.heat = 50.0
-        self.log = deque(zeros, maxlen=qlen)
-        self.out = self.noob(pkt)
+        self.feat = pdict(__missing__=pdict)
+        self.log = deque(maxlen=10)
         self.b = 0
+        if pkt:
+            self.welcome(pkt)
 
     def __repr__(self):
         return ('<%s.%s: %s>' % (
             self.__module__, self.__class__.__name__,
             ' '.join('%s=%r' % x for x in (
-                ('key', self.key),
-                ('bps', self.out.properties.bps),
-                ('rank', self.out.properties.rank),
+                ('addr', self.feat.properties.addr),
+                ('rank', self.feat.properties.rank),
+                ('bps', self.feat.properties.bps),
                 ))))
 
     def __hash__(self):
-        return int(self.key.replace('.',''))
+        return int(self.feat.properties.addr.replace('.',''))
 
     def __eq__(self, other):
-        return (self.key == other.key)
+        return self.feat.properties.addr == other.feat.properties.addr
 
     def __lt__(self, other):
-        #...purposefully "backwards"
-        return self.out.properties.bps > other.out.properties.bps
+        #NOTE: purposefully "backwards"; higher bps ranks first
+        return self.feat.properties.bps > other.feat.properties.bps
+
+    def mavg(self):
+        b, self.b = self.b, 0
+        self.log.append(b)
+        self.feat.properties.bps = round(sum(self.log)/(len(self.log) or 1), 2)
+        return b
 
     @property
     def bps(self):
-        old = self.atime
-        new = self.atime = time.time()
-        bps = self.out.properties.bps = int(
-                self.b/(new-self.log[0].ts)
-                )
-        dt = 10*(new-old)*cmp(bps, self.bmin)
-        old_heat = self.heat
-        new_heat = self.heat = min(self.heat+dt, 150)
-        if old_heat < 100 < new_heat:
-            self.game.promote(self)
-        elif old_heat > 100 > new_heat:
-            self.game.demote(self)
-        if new_heat < 0:
-            self.game.boot(self)
-        return bps
+        return self.feat.properties.bps
 
-    def noob(self, pkt=None):
-        pkt = pkt or ptype(zip(_keys,
-            ('0.0.0.0', '0.0.0.0', 0, 0, '', '', 0, 0),
+    def welcome(self, pkt):
+        f = self.feat
+
+        f.type = 'Feature'
+        f.geometry.type = 'Point'
+        f.geometry.coordinates = (pkt.lon, pkt.lat)
+        f.properties.me = pkt.addr in self.game.sta
+        f.properties.bps = 0.0
+        f.properties.rank = 0
+        f.properties.addr = pkt.addr
+        f.properties.host = pkt.host
+        f.properties.map = ', '.join(filter(None,
+            (pkt.city, pkt.country)
             ))
-        return pdict({
-            'type': 'Feature',
-            'geometry': pdict({
-                'type': 'Point',
-                'coordinates': (pkt.lon, pkt.lat)
-                }),
-            'properties': pdict({
-                'me': pkt.addr == '184.58.129.22',
-                'bps': 0,
-                'rank': 0,
-                'addr': pkt.addr,
-                'host': pkt.host,
-                'map': ', '.join(filter(None,
-                    (pkt.city, pkt.country)
-                    )),
-                }),
-            })
 
-    def play(self, pkt):
-        if pkt.host != self.key:
-            self.out.properties.host = pkt.host
-        self.b += pkt.len - self.log[0].len
-        self.log.append(pkt)
-        return self.bps, self.heat
+        if pkt.addr == pkt.host:
+            del f.properties.host
+        return self
+
+    def __call__(self, pkt):
+        if 'type' not in self.feat:
+            self.welcome(pkt)
+        if 'host' not in self.feat.properties:
+            self.feat.properties.host = pkt.host
+
+        self.b += pkt.len
+
+        return self.b
 
 
 class Leaderboard(object):
 
     def __init__(self):
-        self.joe = pdict()
-        self.pro = pdict()
-        self.fix = pdict({
-            Gamer.ME[0]: Gamer(
-                self, pdict(zip(_keys, Gamer.ME)),
-                ),
-            Gamer.DO[0]: Gamer(
-                self, pdict(zip(_keys, Gamer.DO)),
-                ),
-            })
+        self.dyn = pdict(__missing__=partial(Gamer, game=self))
+        self.sta = pdict(__missing__=partial(Gamer, game=self))
+        for raw in Gamer.LOCAL:
+            pkt = Packet(raw)
+            self.sta[pkt.addr].welcome(pkt)
 
     @property
     def leaders(self):
-        for gamer in self.fix.values():
+        for gamer in self.sta.values():
             yield gamer
-        for rank, gamer in enumerate(sorted(self.pro.values())):
-            gamer.out.properties.rank = rank+1
+        for rank, gamer in enumerate(sorted(self.dyn.values()), start=1):
+            gamer.feat.properties.rank = rank
             yield gamer
 
-    def promote(self, killa):
-        print '>>> (joe => pro) ++++', killa
-        self.pro[killa.key] = self.joe.pop(killa.key)
-        return killa
-
-    def demote(self, tryhard):
-        print '>>> (pro => joe) ----', tryhard
-        self.joe[tryhard.key] = self.pro.pop(tryhard.key)
-        return tryhard
-
-    def boot(self, wanker):
-        print '>>> (no camping) xxxx', wanker
-        self.joe.pop(wanker.key, None)
-        return wanker
-
-    def play(self, pkt):
-        gamer = (self.joe.get(pkt.addr, None) or
-                 self.pro.get(pkt.addr, None) or
-                 self.fix.get(pkt.addr, None))
-        if not gamer:
-            gamer = Gamer(self, pkt)
-            print '>>> new-gamer:', pf(gamer)
-            self.joe[pkt.addr] = gamer
-        return gamer.play(pkt)
+    def __call__(self, pkt):
+        self.dyn[pkt.addr](pkt)
 
 
+class Packet(pdict):
+
+    _attrs = ('ts', 'len', 'addr', 'host', 'lon', 'lat', 'city', 'country')
+    _casts = (float, int, str, str, float, float, str, str)
+
+    def __init__(self, raw, offset=time.time(), seek=0.0):
+        super(pdict, self).__init__(None,[
+            (attr, cast(value))
+            for (attr, cast, value) in zip(
+                self._attrs,
+                self._casts,
+                raw.strip().split('\t'),
+                )])
+        self.ts = offset + round(self.ts - seek, 6)
+
+    def __repr__(self):
+        return ('<%s.%s: %s>' % (
+            self.__module__, self.__class__.__name__,
+            ' '.join('%s=%r' % x for x in (
+                ('ts', self.ts),
+                ('len', self.len),
+                ('addr', self.addr),
+                ))))
+
+
+class GCtrl(object):
+
+    running = True
+
+
+_fd = os.fdopen(int(os.environ['TSHARK_FD']))
 _lb = Leaderboard()
 
 
-def tshark(lb):
-    source = Popen(_tshark, stdout=PIPE, stderr=open(os.devnull))
-    for line in iter(source.stdout.readline, ''):
-        pkt = pdict(zip(_keys, line.strip().split('\t')))
-        pkt.lon = float(pkt.lon)
-        pkt.lat = float(pkt.lat)
-        pkt.len = float(pkt.len)
-        pkt.addr = str(pkt.addr)
-        pkt.ts = time.time()
-        lb.play(pkt)
+@gpfork
+def _tshark(lb=_lb, fd=_fd, seek=0.0, hz=30.0):
+    offset = now = time.time()
+    for raw in FileObjectPosix(fd):
+        if not GCtrl.running:
+            break
+
+        pkt = Packet(raw, offset, seek)
+        if offset > pkt.ts:
+            continue
+
+        while GCtrl.running:
+            now = time.time()
+            if now > pkt.ts:
+                gevent.spawn(lb, pkt)
+                break
+            gevent.sleep(1/hz)
 
 
-@postfork
-def spawn(__cache=dict()):
-    t = __cache.get(0)
-    if t:
-        if t.is_alive():
-            return t
-        t.join()
-        __cache.clear()
-    t = Thread(target=tshark, args=(_lb,))
-    t.daemon = True
-    t.start()
-    __cache[0] = t
-    return t
+@gpfork
+def _stats(lb=_lb, interval=5):
+    sep = '-'*79
+    tpl = '%s\nLEADERS:\n%s\n\nGAMERS:\n%s\n%s'
+    while GCtrl.running:
+        gevent.sleep(interval)
+        print tpl % (
+                sep,
+                pf(tuple(lb.leaders), indent=4),
+                pf(tuple(lb.dyn.values()), indent=4),
+                sep,
+                )
 
 
-interval = 5
-@timer(interval)
-def anticamp(sig, lb=_lb):
-    print '-'*79
-    now = time.time()
-    for gamer in chain(lb.pro.values(), lb.joe.values()):
-        if now - gamer.atime > interval:
-            for i in range(interval)[::-1]:
-                ohnoes = gamer.log[-1].copy()
-                ohnoes.update({'len': 0, 'ts': now})
-                lb.play(ohnoes)
-    print '\n\n%s\n\n' % (pf(list(lb.leaders)),)
+@gpfork
+def _mavg(lb=_lb, interval=1):
+    while GCtrl.running:
+        gevent.sleep(interval)
+        for gamer in lb.dyn.itervalues():
+            gamer.mavg()
 
 
-def entry_json(environ, start_response, lb=_lb):
+@gpfork
+def _bps(lb=_lb, interval=10):
+    while GCtrl.running:
+        gevent.sleep(interval)
+        dead = tuple((
+            addr
+            for (addr, gamer) in lb.dyn.iteritems()
+                if not gamer.bps
+            ))
+
+        print 'BOOTING...'
+        pp(dead, indent=4)
+        map(lb.dyn.pop, dead)
+
+
+def _shutdown():
+    GCtrl.running = False
+gevent.signal(signal.SIGHUP, _shutdown)
+gevent.signal(signal.SIGINT, _shutdown)
+gevent.signal(signal.SIGTERM, _shutdown)
+
+
+def jsonserver(environ, start_response, lb=_lb):
     start_response('200 OK', [
         ('Content-Type', 'application/json; charset=utf-8')
         ])
     return [json.dumps({
         'type': 'FeatureCollection',
-        'features': [node.out for node in lb.leaders],
+        'features': [node.feat for node in lb.leaders],
         })]
-
-
-if __name__ == '__main__':
-    application()

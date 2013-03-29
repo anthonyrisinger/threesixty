@@ -1,6 +1,6 @@
 *py[co]
+*.pcap*
 
-/tests/data/
 /logs/
 
 !.git*

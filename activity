@@ -1,0 +1,25 @@
+#!/bin/bash
+
+
+[[ -n ${DRY} ]] &&
+    src=(-rtests/data.pcap.${DRY}) ||
+    src=(-ivpn0 -f 'src host 10.50.250.123 and port 3074')
+
+
+stdbuf -i0 -o0 -e0 tshark -l -NCmn -o ip.use_geoip:TRUE \
+    "${src}" \
+    -R 'ip.geoip.dst_city != "Redmond, WA"' \
+    -Tfields \
+        -eframe.time_relative \
+        -eframe.len \
+        -eip.dst \
+        -eip.dst_host \
+        -eip.geoip.dst_lon \
+        -eip.geoip.dst_lat \
+        -eip.geoip.dst_city \
+        -eip.geoip.dst_country \
+    "${@}" | {
+        export TSHARK_FD;
+        exec {TSHARK_FD}<&0 </dev/null;
+        stdbuf -i0 -o0 -e0 uwsgi --ini 360.ini --disable-logging;
+        }
