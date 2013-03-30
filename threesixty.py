@@ -50,7 +50,7 @@ pdict = pdict()
 @total_ordering
 class Gamer(object):
 
-    LOCAL = [
+    STATIC = [
         '0\t0\t184.58.129.22\tcpe-184-58-129-22.wi.res.rr.com'
         '\t-88.0075\t43.0228\tMilwaukee, WI\tUnited States',
         '0\t0\t192.81.215.209\ttear.xtfx.net'
@@ -129,7 +129,7 @@ class Leaderboard(object):
     def __init__(self):
         self.dyn = pdict(__missing__=partial(Gamer, game=self))
         self.sta = pdict(__missing__=partial(Gamer, game=self))
-        for raw in Gamer.LOCAL:
+        for raw in Gamer.STATIC:
             pkt = Packet(raw)
             self.sta[pkt.addr].welcome(pkt)
 
