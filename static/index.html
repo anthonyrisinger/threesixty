@@ -50,7 +50,7 @@
             var style = new OpenLayers.Style();
             style.addRules([
                 new OpenLayers.Rule({
-                    filter: OLFC({
+                    filter: new OLFC({
                         property: 'rank',
                         value: 0,
                         type: EQ
@@ -64,7 +64,7 @@
                         }
                     }),
                 new OpenLayers.Rule({
-                    filter: OLFC({
+                    filter: new OLFC({
                         property: 'rank',
                         value: 1,
                         type: EQ
@@ -78,7 +78,7 @@
                         }
                     }),
                 new OpenLayers.Rule({
-                    filter: OLFC({
+                    filter: new OLFC({
                         property: 'rank',
                         value: 1,
                         type: GT
