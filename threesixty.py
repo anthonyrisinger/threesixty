@@ -153,7 +153,6 @@ class Leaderboard(object):
             if bps < 0:
                 mvp = me
             mvp.feat.properties.mvp = True
-            print '>>> MVP!!!', mvp
 
         for gamer in self.sta.values():
             yield gamer
@@ -220,14 +219,12 @@ def _tshark(lb=_lb, fd=_fd, seek=0.0, hz=30.0):
 @gpfork
 def _stats(lb=_lb, interval=5):
     sep = '-'*79
-    tpl = '%s\nLEADERS:\n%s\n\nGAMERS:\n%s\n%s'
+    tpl = '%s\nGAMERS:\n%s'
     while GCtrl.running:
         gevent.sleep(interval)
         print tpl % (
                 sep,
                 pf(tuple(lb.leaders), indent=4),
-                pf(tuple(lb.dyn.values()), indent=4),
-                sep,
                 )
 
 
@@ -248,9 +245,6 @@ def _bps(lb=_lb, interval=10):
             for (addr, gamer) in lb.dyn.iteritems()
                 if not gamer.bps
             ))
-
-        print 'BOOTING...'
-        pp(dead, indent=4)
         map(lb.dyn.pop, dead)
 
 
