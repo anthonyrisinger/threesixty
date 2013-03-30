@@ -101,6 +101,7 @@ class Gamer(object):
         f.geometry.type = 'Point'
         f.geometry.coordinates = (pkt.lon, pkt.lat)
         f.properties.me = pkt.addr in self.game.sta
+        f.properties.mvp = False
         f.properties.bps = 0.0
         f.properties.rank = 0
         f.properties.addr = pkt.addr
@@ -135,10 +136,28 @@ class Leaderboard(object):
 
     @property
     def leaders(self):
+        finals = sorted(self.dyn.values())
+
+        if finals:
+            bps = False
+            mvp = finals[0]
+            me = self.sta['184.58.129.22']
+            for rank, gamer in enumerate(finals, start=1):
+                gamer.feat.properties.mvp = False
+                gamer.feat.properties.rank = rank
+                if rank in (1,):
+                    bps = gamer.bps
+                if rank in (2,3):
+                    bps -= gamer.bps
+            me.feat.properties.mvp = False
+            if bps < 0:
+                mvp = me
+            mvp.feat.properties.mvp = True
+            print '>>> MVP!!!', mvp
+
         for gamer in self.sta.values():
             yield gamer
-        for rank, gamer in enumerate(sorted(self.dyn.values()), start=1):
-            gamer.feat.properties.rank = rank
+        for gamer in finals:
             yield gamer
 
     def __call__(self, pkt):
