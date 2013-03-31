@@ -8,7 +8,7 @@
 
 stdbuf -i0 -o0 -e0 tshark -l -NCmn -o ip.use_geoip:TRUE \
     "${src}" \
-    -R 'ip.geoip.dst_city != "Redmond, WA"' \
+    -R 'ip.geoip.dst_city != "Redmond, WA" and ip.geoip.dst_city != "Sidney, MT"' \
     -Tfields \
         -eframe.time_relative \
         -eframe.len \

@@ -65,8 +65,8 @@
                     }),
                 new OpenLayers.Rule({
                     filter: new OLFC({
-                        property: 'mvp',
-                        value: true,
+                        property: 'rank',
+                        value: 1,
                         type: EQ
                         }),
                     symbolizer: {
@@ -131,7 +131,7 @@
                 styleMap: styleMap,
                 strategies: [
                     new OpenLayers.Strategy.Fixed(),
-                    new OpenLayers.Strategy.Refresh({interval: 5000})
+                    new OpenLayers.Strategy.Refresh({interval: 2000})
                     ],
                 protocol: new OpenLayers.Protocol.HTTP({
                     url: "/360/json/players/",

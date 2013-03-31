@@ -9,11 +9,13 @@ import sys, os
 
 import gevent
 from gevent.fileobject import FileObjectPosix
-from collections import deque
+from collections import OrderedDict, deque
 
 from uwsgidecorators import postfork
 from functools import partial, total_ordering
+from operator import attrgetter, itemgetter
 
+import math
 import json
 import time
 import signal
@@ -55,12 +57,14 @@ class Gamer(object):
         '\t-88.0075\t43.0228\tMilwaukee, WI\tUnited States',
         '0\t0\t192.81.215.209\ttear.xtfx.net'
         '\t-73.9981\t40.7267\tNew York, NY\tUnited States',
+        '0\t0\t216.228.53.82\t216-228-53-82.midrivers.com'
+        '\t-104.286301\t47.756401\tSidney, MT\tUnited States',
         ]
 
     def __init__(self, game, pkt=None):
         self.game = game
         self.feat = pdict(__missing__=pdict)
-        self.log = deque(maxlen=10)
+        self.log = deque(maxlen=4)
         self.b = 0
         if pkt:
             self.welcome(pkt)
@@ -128,6 +132,7 @@ class Gamer(object):
 class Leaderboard(object):
 
     def __init__(self):
+        self.mean = self.stddev = 0
         self.dyn = pdict(__missing__=partial(Gamer, game=self))
         self.sta = pdict(__missing__=partial(Gamer, game=self))
         for raw in Gamer.STATIC:
@@ -136,28 +141,31 @@ class Leaderboard(object):
 
     @property
     def leaders(self):
-        finals = sorted(self.dyn.values())
-
-        if finals:
-            bps = False
-            mvp = finals[0]
-            me = self.sta['184.58.129.22']
-            for rank, gamer in enumerate(finals, start=1):
-                gamer.feat.properties.mvp = False
-                gamer.feat.properties.rank = rank
-                if rank in (1,):
-                    bps = gamer.bps
-                if rank in (2,3):
-                    bps -= gamer.bps
-            me.feat.properties.mvp = False
-            if bps < 0:
-                mvp = me
-            mvp.feat.properties.mvp = True
+        top = 1
+        me = self.sta['184.58.129.22']
+        me.feat.properties.rank = 0
+        if self.stddev*3 < self.mean:
+            me.feat.properties.rank = top
+            top += 1
 
         for gamer in self.sta.values():
             yield gamer
-        for gamer in finals:
+        for rank, gamer in enumerate(sorted(self.dyn.values()), start=top):
+            gamer.feat.properties.rank = rank
             yield gamer
+
+    def metrics(self):
+        self.mean = self.stddev = 0.0
+        if len(self.dyn) > 1:
+            n = mean = M2 = 0.0
+            for x in map(attrgetter('bps'), self.dyn.values()):
+                n = n + 1
+                delta = x - mean
+                mean = mean + delta/n
+                M2 = M2 + delta*(x - mean)
+            self.stddev = abs(round(math.sqrt(M2/(n - 1)), 2))
+            self.mean = round(mean, 2)
+        return self.mean, self.stddev
 
     def __call__(self, pkt):
         self.dyn[pkt.addr](pkt)
@@ -217,15 +225,15 @@ def _tshark(lb=_lb, fd=_fd, seek=0.0, hz=30.0):
 
 
 @gpfork
-def _stats(lb=_lb, interval=5):
-    sep = '-'*79
-    tpl = '%s\nGAMERS:\n%s'
+def _stats(lb=_lb, interval=2, sep='-'*79):
     while GCtrl.running:
         gevent.sleep(interval)
-        print tpl % (
-                sep,
-                pf(tuple(lb.leaders), indent=4),
-                )
+        stats = '\n'.join('%s:\n%s' % (k.upper(), pf(v, indent=4))
+                for (k, v) in (
+                    ('gamers', tuple(lb.leaders)),
+                    ('metrics', lb.metrics()),
+                    ))
+        print '%s\n\n%s\n\n%s' % (sep, stats, sep)
 
 
 @gpfork
@@ -237,13 +245,14 @@ def _mavg(lb=_lb, interval=1):
 
 
 @gpfork
-def _bps(lb=_lb, interval=10):
+def _bps(lb=_lb, interval=4):
     while GCtrl.running:
         gevent.sleep(interval)
         dead = tuple((
             addr
             for (addr, gamer) in lb.dyn.iteritems()
-                if not gamer.bps
+                if len(gamer.log)==gamer.log.maxlen and
+                not gamer.bps
             ))
         map(lb.dyn.pop, dead)
 
