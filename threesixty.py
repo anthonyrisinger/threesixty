@@ -144,7 +144,7 @@ class Leaderboard(object):
         top = 1
         me = self.sta['184.58.129.22']
         me.feat.properties.rank = 0
-        if self.stddev*3 < self.mean:
+        if self.stddev*2 < self.mean:
             me.feat.properties.rank = top
             top += 1
 
